@@ -3,38 +3,38 @@ use serde::{Deserialize, Serialize};
 use std::ops::{BitAnd, BitOr, BitXor, Not};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct BitBoard(pub u16);
-pub type BB = BitBoard;
+pub struct Bitboard(pub u16);
+pub type BB = Bitboard;
 
 #[allow(dead_code)]
-impl BitBoard {
-    pub const OUT_OF_BOUNDS: BitBoard = BitBoard(0xF888);
-    pub const ONES: BitBoard = BitBoard(0x0777);
-    pub const FULL_BOARD: BitBoard = BitBoard(0x0777);
-    pub const EMPTY_BOARD: BitBoard = BitBoard(0x0000);
-    pub const WIN_STATES: [BitBoard; 8] = [
-        BitBoard(0x0700), //1st row
-        BitBoard(0x0070), //2nd row
-        BitBoard(0x0007), //3rd row
-        BitBoard(0x0444), //1st col
-        BitBoard(0x0222), //2nd col
-        BitBoard(0x0111), //3rd col
-        BitBoard(0x0124), //diag
-        BitBoard(0x0421), //other diag
+impl Bitboard {
+    pub const OUT_OF_BOUNDS: Bitboard = Bitboard(0xF888);
+    pub const ONES: Bitboard = Bitboard(0x0777);
+    pub const FULL_BOARD: Bitboard = Bitboard(0x0777);
+    pub const EMPTY_BOARD: Bitboard = Bitboard(0x0000);
+    pub const WIN_STATES: [Bitboard; 8] = [
+        Bitboard(0x0700), //1st row
+        Bitboard(0x0070), //2nd row
+        Bitboard(0x0007), //3rd row
+        Bitboard(0x0444), //1st col
+        Bitboard(0x0222), //2nd col
+        Bitboard(0x0111), //3rd col
+        Bitboard(0x0124), //diag
+        Bitboard(0x0421), //other diag
     ];
-    pub const MOVES: [BitBoard; 9] = [
-        BitBoard(0x0400),
-        BitBoard(0x0200),
-        BitBoard(0x0100),
-        BitBoard(0x0040),
-        BitBoard(0x0020),
-        BitBoard(0x0010),
-        BitBoard(0x0004),
-        BitBoard(0x0002),
-        BitBoard(0x0001),
+    pub const MOVES: [Bitboard; 9] = [
+        Bitboard(0x0400),
+        Bitboard(0x0200),
+        Bitboard(0x0100),
+        Bitboard(0x0040),
+        Bitboard(0x0020),
+        Bitboard(0x0010),
+        Bitboard(0x0004),
+        Bitboard(0x0002),
+        Bitboard(0x0001),
     ];
 
-    pub const POSSIBLE_MOVES: [BitBoard; 9] = BB::MOVES;
+    pub const POSSIBLE_MOVES: [Bitboard; 9] = BB::MOVES;
 
     pub fn print_full_bitboard(&self) {
         let mut s = String::new();
@@ -72,44 +72,44 @@ impl BitBoard {
     }
 }
 
-impl BitAnd for BitBoard {
-    type Output = BitBoard;
-    fn bitand(self, rhs: BitBoard) -> Self::Output {
-        BitBoard(self.get_val() & rhs.get_val())
+impl BitAnd for Bitboard {
+    type Output = Bitboard;
+    fn bitand(self, rhs: Bitboard) -> Self::Output {
+        Bitboard(self.get_val() & rhs.get_val())
     }
 }
 
-impl BitOr for BitBoard {
-    type Output = BitBoard;
-    fn bitor(self, rhs: BitBoard) -> Self::Output {
-        BitBoard(self.get_val() | rhs.get_val())
+impl BitOr for Bitboard {
+    type Output = Bitboard;
+    fn bitor(self, rhs: Bitboard) -> Self::Output {
+        Bitboard(self.get_val() | rhs.get_val())
     }
 }
 
-impl BitXor for BitBoard {
-    type Output = BitBoard;
-    fn bitxor(self, rhs: BitBoard) -> Self::Output {
-        BitBoard(self.get_val() ^ rhs.get_val())
+impl BitXor for Bitboard {
+    type Output = Bitboard;
+    fn bitxor(self, rhs: Bitboard) -> Self::Output {
+        Bitboard(self.get_val() ^ rhs.get_val())
     }
 }
 
-impl Not for BitBoard {
-    type Output = BitBoard;
+impl Not for Bitboard {
+    type Output = Bitboard;
     fn not(self) -> Self::Output {
-        BitBoard(!self.get_val())
+        Bitboard(!self.get_val())
     }
 }
 
 pub struct GameBoard {
-    pub x_b: BitBoard,
-    pub o_b: BitBoard,
-    pub t_b: BitBoard,
+    pub x_b: Bitboard,
+    pub o_b: Bitboard,
+    pub t_b: Bitboard,
 }
 
 pub type GB = GameBoard;
 
 pub trait GameBoardMove {
-    fn to_bitboard(&self) -> BitBoard;
+    fn to_bitboard(&self) -> Bitboard;
 }
 
 #[derive(Debug)]
@@ -128,14 +128,14 @@ pub enum GameState {
 }
 pub type GS = GameState;
 
-impl GameBoardMove for BitBoard {
-    fn to_bitboard(&self) -> BitBoard {
+impl GameBoardMove for Bitboard {
+    fn to_bitboard(&self) -> Bitboard {
         *self
     }
 }
 
 impl GameBoardMove for [u16; 2] {
-    fn to_bitboard(&self) -> BitBoard {
+    fn to_bitboard(&self) -> Bitboard {
         if !self[0] <= 2 || !self[1] <= 2 {
             panic!("to_bitboard: out of bounds!");
         }
@@ -162,9 +162,9 @@ impl GameBoard {
         for i in 0..11 {
             s.push_str(if i % 4 == 3 {
                 "\n"
-            } else if self.o_b & BitBoard((1 << 10) >> i) != BB::EMPTY_BOARD {
+            } else if self.o_b & Bitboard((1 << 10) >> i) != BB::EMPTY_BOARD {
                 "O"
-            } else if self.x_b & BitBoard((1 << 10) >> i) != BB::EMPTY_BOARD {
+            } else if self.x_b & Bitboard((1 << 10) >> i) != BB::EMPTY_BOARD {
                 "X"
             } else {
                 "."
@@ -175,7 +175,7 @@ impl GameBoard {
         println!("===================");
     }
 
-    pub fn valid_moves(&self) -> Vec<BitBoard> {
+    pub fn valid_moves(&self) -> Vec<Bitboard> {
         let mut mvs = Vec::new();
         for m in BB::POSSIBLE_MOVES {
             if self.is_valid_move(&m) {

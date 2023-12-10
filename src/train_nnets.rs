@@ -91,18 +91,18 @@ impl ScoreBoard {
 
         writeln!(
             stream,
-            "Time Training: {:.2?}, Self Play: {} (Draws: {:.2}%) -- MSE average: {:.2}",
+            "Time Training: {:.2?}, Self Play: {} (Draws: {:.2}%) -- MSE average: {:.4}/100",
             self.start_time.elapsed(),
             self.self_plays,
             (self.self_draws as f64 / self.self_plays as f64) * 100.0,
-            self.mse_average,
+            self.mse_average * 100.0,
         )?;
         stream.flush()?;
         Ok(())
     }
 }
 
-impl BitBoard {
+impl Bitboard {
     pub fn to_vec_bool(&self) -> Vec<bool> {
         let mut vec: Vec<bool> = Vec::new();
         for i in 0..=11 {
@@ -180,7 +180,7 @@ pub fn net_vs_self(
     let mut rewards_o: Vec<f64> = Vec::new();
     let mut inv_grad_vec: Vec<Grad> = Vec::new();
     let mut inv_rewards: Vec<f64> = Vec::new();
-
+    let mut mse: f64 = 0.0;
     while gb.game_state() == GS::Ongoing {
         let mut vec_bool: Vec<bool> = Vec::new();
         if x_turn {
@@ -207,7 +207,7 @@ pub fn net_vs_self(
             false => get_index(&output, gb),
         };
         // HERE
-        let mut mse: f64 = 0.0;
+
         for (i, x) in output.iter().enumerate() {
             if i == index {
                 mse += (x - 1.0).powi(2_i32);
@@ -215,9 +215,7 @@ pub fn net_vs_self(
                 mse += x.powi(2_i32);
             }
         }
-        mse = mse / (output.len() as f64);
-        sb.mse_counter += 1;
-        sb.mse_average = sb.mse_average + (mse - sb.mse_average) / (sb.mse_counter as f64);
+
         gb.make_move(BB::MOVES[index]).unwrap();
         grad_vec.push(net.back_prop(&vec_bool, &index));
         if sample {
@@ -250,6 +248,9 @@ pub fn net_vs_self(
         };
         let inv_len = inv_grad_vec.len();
         let len = grad_vec.len();
+        mse = mse / ((BB::MOVES.len() * len) as f64);
+        sb.mse_counter += 1;
+        sb.mse_average = sb.mse_average + (mse - sb.mse_average) / (sb.mse_counter as f64);
         if inv_len > 0 {
             net.update(&inv_grad_vec, &vec![1_i32; inv_len], &inv_rewards);
         }
@@ -279,13 +280,13 @@ pub fn net_vs_random(
     gb.new_game();
 
     let mut x_turn: bool = true; // x goes first
+    let mut mse: f64 = 0.0;
 
     let mut grad_vec: Vec<Grad> = Vec::new();
     let mut rewards_x: Vec<f64> = Vec::new();
     let mut rewards_o: Vec<f64> = Vec::new();
     let mut inv_grad_vec: Vec<Grad> = Vec::new();
     let mut inv_rewards: Vec<f64> = Vec::new();
-
     while gb.game_state() == GS::Ongoing {
         let mut vec_bool: Vec<bool> = Vec::new();
 
@@ -315,7 +316,6 @@ pub fn net_vs_random(
                 false => get_index(&output, gb),
             };
             // HERE
-            let mut mse: f64 = 0.0;
             for (i, x) in output.iter().enumerate() {
                 if i == index {
                     mse += (x - 1.0).powi(2_i32);
@@ -323,9 +323,7 @@ pub fn net_vs_random(
                     mse += x.powi(2_i32);
                 }
             }
-            mse = mse / (output.len() as f64);
-            sb.mse_counter += 1;
-            sb.mse_average = sb.mse_average + (mse - sb.mse_average) / (sb.mse_counter as f64);
+
             gb.make_move(BB::MOVES[index]).unwrap();
             grad_vec.push(net.back_prop(&vec_bool, &index));
             if sample {
@@ -379,7 +377,13 @@ pub fn net_vs_random(
     } else {
         sb.random_wins += 1
     }
-
+    if net_is_x {
+        mse = mse / ((BB::MOVES.len() * rewards_x.len()) as f64);
+    } else {
+        mse = mse / ((BB::MOVES.len() * rewards_o.len()) as f64);
+    }
+    sb.mse_counter += 1;
+    sb.mse_average = sb.mse_average + (mse - sb.mse_average) / (sb.mse_counter as f64);
     if is_train {
         let mut rewards: Vec<f64> = Vec::new();
         match gb.game_state() {
