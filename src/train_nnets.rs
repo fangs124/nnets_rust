@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use itertools::izip;
+use itertools::interleave;
 use rand::distributions::{Distribution, WeightedIndex};
 use rand::Rng;
 
@@ -72,11 +72,11 @@ impl ScoreBoard {
             self.random_wins,
             self.draws,
             100.0 * (self.net_wins as f64) / (self.vs_random as f64),
-            (100.0 * (self.net_wins as f64) / (self.vs_random as f64)) - self.prev_w as f64,
+            (100.0 * (self.net_wins as f64) / (self.vs_random as f64)) - self.prev_w,
             100.0 * (self.random_wins as f64) / (self.vs_random as f64),
-            (100.0 * (self.random_wins as f64) / (self.vs_random as f64)) - self.prev_l as f64,
+            (100.0 * (self.random_wins as f64) / (self.vs_random as f64)) - self.prev_l,
             100.0 * (self.draws as f64) / (self.vs_random as f64),
-            (100.0 * (self.draws as f64) / (self.vs_random as f64)) - self.prev_d as f64,
+            (100.0 * (self.draws as f64) / (self.vs_random as f64)) - self.prev_d,
             BATCH_SIZE,
             self.epoch,
             self.now.elapsed(),
@@ -131,73 +131,84 @@ impl InputType for bool {
     }
 }
 
+pub struct Episode<T> {
+    //a sequence of data from start till end of game
+    states: Vec<Vec<T>>,
+    actions: Vec<usize>,
+    rewards: Vec<f64>,
+}
+
+type Ep<T> = Episode<T>;
+
+impl<T> Episode<T> {
+    pub fn new() -> Self {
+        Episode {
+            states: Vec::new(),
+            actions: Vec::new(),
+            rewards: Vec::new(),
+        }
+    }
+}
 // some constants/parameters
 const BATCH_SIZE: usize = 100;
-const TRESHOLD: f64 = 0.05;
-pub fn net_vs_self(net: &mut Net<bool>, gb: &mut GB, sb: &mut SB, is_train: bool, sample: bool) {
-    gb.new_game();
+const TRESHOLD: f64 = 0.001;
+pub fn net_vs_self(
+    net: &mut Net<bool>,
+    gb: &mut GB,
+    sb: &mut SB,
+    is_train: bool,
+    sample: bool,
+    is_on_policy: bool,
+) {
     if sample {
         println!("net_vs_self");
     }
-    let mut x_turn: bool = true; // x goes first
-    let mut x_moves: Vec<usize> = Vec::new();
-    let mut o_moves: Vec<usize> = Vec::new();
-    let mut x_states: Vec<Vec<bool>> = Vec::new();
-    let mut o_states: Vec<Vec<bool>> = Vec::new();
 
-    let mut vec_rs_x: Vec<Vec<f64>> = Vec::new();
-    let mut vec_rs_o: Vec<Vec<f64>> = Vec::new();
+    gb.new_game();
+
+    let mut x_turn: bool = true; // x goes first
+
+    let mut grad_vec: Vec<Grad> = Vec::new();
+    let mut rewards_x: Vec<f64> = Vec::new();
+    let mut rewards_o: Vec<f64> = Vec::new();
+    let mut inv_grad_vec: Vec<Grad> = Vec::new();
+    let mut inv_rewards: Vec<f64> = Vec::new();
 
     while gb.game_state() == GS::Ongoing {
-        let mut rewards: Vec<f64> = vec![0.0; BB::MOVES.len()]; // BB::MOVES.len() -> 9?
         let mut vec_bool: Vec<bool> = Vec::new();
-
         if x_turn {
             vec_bool.append(&mut gb.to_vec_bool_x());
-            x_states.push(vec_bool.clone());
         } else {
             vec_bool.append(&mut gb.to_vec_bool_o());
-            o_states.push(vec_bool.clone());
         }
 
-        let mut inv_states: Vec<Vec<bool>> = Vec::new();
-        let mut inv_moves: Vec<usize> = Vec::new();
-        let output: Vec<f64> = net.get_pi_output(&mut vec_bool);
+        net.forward_prop(&vec_bool);
+        let output: Vec<f64> = net.get_pi_output();
 
         // teach Net not to make invalid moves
-        let inv_indices = get_invalid_indices(&output, TRESHOLD, &gb);
-        let mut inv_rewards: Vec<Vec<f64>> = Vec::new();
+        let inv_indices = get_invalid_indices(&output, TRESHOLD, gb);
 
         for &i in &inv_indices {
-            rewards[i] = (-1.0) * inv_indices.len() as f64;
-            inv_rewards.push(rewards.clone());
-            inv_states.push(vec_bool.clone());
-            inv_moves.push(i);
-            rewards = vec![0.0; BB::MOVES.len()];
+            inv_grad_vec.push(net.back_prop(&vec_bool, &i));
+            inv_rewards.push(-2.5);
         }
 
         sb.invalid_count += inv_indices.len() as u64;
 
-        // zip to pass to train
-        if is_train {
-            net.train_iter(izip!(inv_states, inv_rewards, inv_moves), 1 as usize);
+        let index: usize = match is_on_policy {
+            true => get_random_index(&output, gb),
+            false => get_index(&output, gb),
         };
-
-        let index = get_random_index(&output, gb);
         gb.make_move(BB::MOVES[index]).unwrap();
+        grad_vec.push(net.back_prop(&vec_bool, &index));
         if sample {
             gb.print_gameboard();
         }
-        // reset rewards for x_move or o_move
-        rewards = vec![0.0; BB::MOVES.len()];
-        rewards[index] = 1.0;
 
         if x_turn {
-            x_moves.push(index);
-            vec_rs_x.push(rewards);
+            rewards_x.push(1.0);
         } else {
-            o_moves.push(index);
-            vec_rs_o.push(rewards);
+            rewards_o.push(1.0);
         }
         // pass turn to next player
         x_turn = !x_turn;
@@ -205,100 +216,94 @@ pub fn net_vs_self(net: &mut Net<bool>, gb: &mut GB, sb: &mut SB, is_train: bool
 
     // game ended
     if is_train {
+        let mut rewards: Vec<f64> = Vec::new();
         match gb.game_state() {
             GS::XWin => {
-                for reward in vec_rs_x.iter_mut() {
-                    *reward = reward.iter().map(|x| *x * -1.0).collect();
-                }
+                rewards = interleave(rewards_x, rewards_o.into_iter().map(|x| x * -1.0))
+                    .collect::<Vec<_>>();
             }
             GS::OWin => {
-                for reward in vec_rs_o.iter_mut() {
-                    *reward = reward.iter().map(|x| *x * -1.0).collect();
-                }
+                rewards = interleave(rewards_x.into_iter().map(|x| x * -1.0), rewards_o)
+                    .collect::<Vec<_>>();
             }
             GS::Tie => sb.self_draws += 1,
             _ => panic!("net_vs_random: state is impossible"),
         };
-        let count = x_moves.len();
-        net.train_iter(izip!(x_states, vec_rs_x, x_moves), count);
-        let count = o_moves.len();
-        net.train_iter(izip!(o_states, vec_rs_o, o_moves), count);
-        net.update();
+        let inv_len = inv_grad_vec.len();
+        let len = grad_vec.len();
+        if inv_len > 0 {
+            net.update(&inv_grad_vec, &vec![1_i32; inv_len], &inv_rewards);
+        }
+        if gb.game_state() != GS::Tie {
+            net.update(&grad_vec, &vec![len as i32; len], &rewards);
+        }
     }
     sb.self_plays += 1;
 }
 
-pub fn net_vs_random(net: &mut Net<bool>, gb: &mut GB, sb: &mut SB, is_train: bool, sample: bool) {
-    gb.new_game();
+pub fn net_vs_random(
+    net: &mut Net<bool>,
+    gb: &mut GB,
+    sb: &mut SB,
+    is_train: bool,
+    sample: bool,
+    is_on_policy: bool,
+) {
     let mut rng = rand::thread_rng();
     let net_is_x: bool = rng.gen();
+
     if sample {
         println!("net_vs_random");
         println!("net is x: {}", net_is_x);
     }
-    let mut x_turn: bool = true; // x goes first
-    let mut x_moves: Vec<usize> = Vec::new();
-    let mut o_moves: Vec<usize> = Vec::new();
-    let mut x_states: Vec<Vec<bool>> = Vec::new();
-    let mut o_states: Vec<Vec<bool>> = Vec::new();
 
-    #[allow(non_snake_case)]
-    let mut vec_rs_x: Vec<Vec<f64>> = Vec::new();
-    #[allow(non_snake_case)]
-    let mut vec_rs_o: Vec<Vec<f64>> = Vec::new();
+    gb.new_game();
+
+    let mut x_turn: bool = true; // x goes first
+
+    let mut grad_vec: Vec<Grad> = Vec::new();
+    let mut rewards_x: Vec<f64> = Vec::new();
+    let mut rewards_o: Vec<f64> = Vec::new();
+    let mut inv_grad_vec: Vec<Grad> = Vec::new();
+    let mut inv_rewards: Vec<f64> = Vec::new();
 
     while gb.game_state() == GS::Ongoing {
-        #[allow(non_snake_case)]
-        let mut rewards: Vec<f64> = vec![0.0; BB::MOVES.len()];
         let mut vec_bool: Vec<bool> = Vec::new();
 
         if x_turn {
             vec_bool.append(&mut gb.to_vec_bool_x());
-            x_states.push(vec_bool.clone());
         } else {
             vec_bool.append(&mut gb.to_vec_bool_o());
-            o_states.push(vec_bool.clone());
         }
 
         // net's turn
         if x_turn == net_is_x {
-            let mut inv_states: Vec<Vec<bool>> = Vec::new();
-            let mut inv_moves: Vec<usize> = Vec::new();
-            let output: Vec<f64> = net.get_pi_output(&mut vec_bool);
+            net.forward_prop(&vec_bool);
+            let output: Vec<f64> = net.get_pi_output();
 
             // teach Net not to make invalid moves
-            let inv_indices = get_invalid_indices(&output, TRESHOLD, &gb);
-            let mut inv_rewards: Vec<Vec<f64>> = Vec::new();
+            let inv_indices = get_invalid_indices(&output, TRESHOLD, gb);
 
             for &i in &inv_indices {
-                rewards[i] = (-1.0) * inv_indices.len() as f64;
-                inv_rewards.push(rewards.clone());
-                inv_states.push(vec_bool.clone());
-                inv_moves.push(i);
-                rewards = vec![0.0; BB::MOVES.len()];
+                inv_grad_vec.push(net.back_prop(&vec_bool, &i));
+                inv_rewards.push(-1.0);
             }
 
             sb.invalid_count += inv_indices.len() as u64;
 
-            // zip to pass to train
-            if is_train {
-                net.train_iter(izip!(inv_states, inv_rewards, inv_moves), 1 as usize);
+            let index: usize = match is_on_policy {
+                true => get_random_index(&output, gb),
+                false => get_index(&output, gb),
             };
-
-            let index = get_random_index(&output, gb);
             gb.make_move(BB::MOVES[index]).unwrap();
+            grad_vec.push(net.back_prop(&vec_bool, &index));
             if sample {
                 gb.print_gameboard();
             }
-            // reset reward for game move
-            rewards[index] = 1.0;
-
             if x_turn {
-                x_moves.push(index);
-                vec_rs_x.push(rewards);
+                rewards_x.push(1.0);
             } else {
-                o_moves.push(index);
-                vec_rs_o.push(rewards);
+                rewards_o.push(1.0);
             }
         }
         // random's turn
@@ -309,24 +314,33 @@ pub fn net_vs_random(net: &mut Net<bool>, gb: &mut GB, sb: &mut SB, is_train: bo
                 .collect();
             let rand_num = rng.gen_range(0..indices.len());
             gb.make_move(BB::MOVES[indices[rand_num]]).unwrap();
+
             if sample {
                 gb.print_gameboard();
             }
-            rewards = vec![0.0; BB::MOVES.len()];
-            rewards[indices[rand_num]] = 1.0;
-            if x_turn {
-                x_moves.push(indices[rand_num]);
-                vec_rs_x.push(rewards);
+
+            net.forward_prop(&vec_bool);
+            let output = net.get_pi_output();
+            if output[indices[rand_num]].abs() > TRESHOLD {
+                if x_turn {
+                    rewards_x.push(1.0);
+                } else {
+                    rewards_o.push(1.0);
+                }
+            } else if x_turn {
+                rewards_x.push(0.0);
             } else {
-                o_moves.push(indices[rand_num]);
-                vec_rs_o.push(rewards);
+                rewards_o.push(0.0);
             }
         }
 
         // pass turn to next player
         x_turn = !x_turn;
     }
+    // game ended
 
+    //update score statistics
+    sb.vs_random += 1;
     if gb.game_state() == GS::Tie {
         sb.draws += 1
     } else if (gb.game_state() == GS::XWin) == net_is_x {
@@ -335,46 +349,43 @@ pub fn net_vs_random(net: &mut Net<bool>, gb: &mut GB, sb: &mut SB, is_train: bo
         sb.random_wins += 1
     }
 
-    sb.vs_random += 1;
-    // game ended
     if is_train {
+        let mut rewards: Vec<f64> = Vec::new();
         match gb.game_state() {
             GS::XWin => {
-                for reward in vec_rs_x.iter_mut() {
-                    *reward = reward.iter().map(|x| *x * -1.0).collect();
-                }
+                rewards = interleave(rewards_x, rewards_o.into_iter().map(|x| x * -1.0))
+                    .collect::<Vec<_>>();
             }
             GS::OWin => {
-                for reward in vec_rs_o.iter_mut() {
-                    *reward = reward.iter().map(|x| *x * -1.0).collect();
-                }
+                rewards = interleave(rewards_x.into_iter().map(|x| x * -1.0), rewards_o)
+                    .collect::<Vec<_>>();
             }
             GS::Tie => sb.self_draws += 1,
             _ => panic!("net_vs_random: state is impossible"),
         };
-        if net_is_x {
-            let count = x_moves.len();
-            net.train_iter(izip!(x_states, vec_rs_x, x_moves), count);
-        } else {
-            let count = o_moves.len();
-            net.train_iter(izip!(o_states, vec_rs_o, o_moves), count);
+        let inv_len = inv_grad_vec.len();
+        let len = grad_vec.len();
+        if inv_len > 0 {
+            net.update(&inv_grad_vec, &vec![1_i32; inv_len], &inv_rewards);
         }
-        net.update();
+        if gb.game_state() != GS::Tie {
+            net.update(&grad_vec, &vec![len as i32; len], &rewards);
+        }
     }
 }
 
 // returns the indices of all invalid moves by the Net that's above the treshold
-pub fn get_invalid_indices(net_output: &Vec<f64>, treshold: f64, gb: &GB) -> Vec<usize> {
+pub fn get_invalid_indices(net_output: &[f64], treshold: f64, gb: &GB) -> Vec<usize> {
     net_output
         .iter()
         .enumerate()
-        .filter(|&(i, &x)| x > treshold && !gb.is_valid_move(&BB::MOVES[i]))
+        .filter(|&(i, &x)| x.abs() > treshold && !gb.is_valid_move(&BB::MOVES[i]))
         .map(|(index, _)| index)
         .collect()
 }
 
 // returns the index of a valid move corresponding to the Net's highest output
-pub fn get_index(net_output: &Vec<f64>, gb: &GB) -> usize {
+pub fn get_index(net_output: &[f64], gb: &GB) -> usize {
     net_output
         .iter()
         .enumerate()
@@ -384,11 +395,11 @@ pub fn get_index(net_output: &Vec<f64>, gb: &GB) -> usize {
         .unwrap()
 }
 
-pub fn get_random_index(net_output: &Vec<f64>, gb: &GB) -> usize {
+pub fn get_random_index(net_output: &[f64], gb: &GB) -> usize {
     let mut valids = net_output
         .iter()
         .enumerate()
-        .filter(|&(i, &x)| gb.is_valid_move(&BB::MOVES[i]) && x > 0.0);
+        .filter(|&(i, &x)| gb.is_valid_move(&BB::MOVES[i]) && x.abs() > 0.00001);
     let mut total: f64 = 0.0;
     for (_, &x) in valids.clone() {
         total += x
@@ -398,7 +409,7 @@ pub fn get_random_index(net_output: &Vec<f64>, gb: &GB) -> usize {
         .map(|(_, &x)| x / total)
         .collect::<Vec<f64>>();
     let mut rng = rand::thread_rng();
-    let dist = WeightedIndex::new(&ws).unwrap();
+    let dist = WeightedIndex::new(ws).unwrap();
 
     return valids.nth(dist.sample(&mut rng)).unwrap().0;
 }

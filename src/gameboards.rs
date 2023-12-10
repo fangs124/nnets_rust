@@ -40,12 +40,12 @@ impl BitBoard {
         let mut s = String::new();
         for i in 0..=15 {
             if i % 4 == 3 {
-                s.push_str("\n");
+                s.push('\n');
             }
-            s.push_str(if (self.get_val() << 15) & (1 >> i) != 0 {
-                "1"
+            s.push(if (self.get_val() << 15) & (1 >> i) != 0 {
+                '1'
             } else {
-                "0"
+                '0'
             });
         }
         println!("{}\n", s);
@@ -55,12 +55,12 @@ impl BitBoard {
         let mut s = String::new();
         for i in 0..=10 {
             if i % 4 == 3 {
-                s.push_str("\n");
+                s.push('\n');
             } else {
-                s.push_str(if (self.get_val() << 15) & (1 >> i) != 0 {
-                    "1"
+                s.push(if (self.get_val() << 15) & (1 >> i) != 0 {
+                    '1'
                 } else {
-                    "0"
+                    '0'
                 });
             }
         }
@@ -130,13 +130,13 @@ pub type GS = GameState;
 
 impl GameBoardMove for BitBoard {
     fn to_bitboard(&self) -> BitBoard {
-        return *self;
+        *self
     }
 }
 
 impl GameBoardMove for [u16; 2] {
     fn to_bitboard(&self) -> BitBoard {
-        if !0 <= self[0] || !self[0] <= 2 || !0 <= self[1] || !self[1] <= 2 {
+        if !self[0] <= 2 || !self[1] <= 2 {
             panic!("to_bitboard: out of bounds!");
         }
         BB::POSSIBLE_MOVES[usize::from(self[0] + 3 * self[1])]
@@ -182,7 +182,7 @@ impl GameBoard {
                 mvs.push(m)
             };
         }
-        return mvs;
+        mvs
     }
 
     pub fn game_state(&self) -> GameState {
@@ -195,9 +195,9 @@ impl GameBoard {
         }
 
         if (self.x_b | self.o_b) == BB::FULL_BOARD {
-            return GameState::Tie;
+            GameState::Tie
         } else {
-            return GameState::Ongoing;
+            GameState::Ongoing
         }
     }
 
@@ -222,10 +222,6 @@ impl GameBoard {
     }
 
     pub fn is_valid_move<T: GameBoardMove>(&self, m: &T) -> bool {
-        if m.to_bitboard() & (self.x_b | self.o_b) != BB::EMPTY_BOARD {
-            return false;
-        } else {
-            return true;
-        };
+        return m.to_bitboard() & (self.x_b | self.o_b) != BB::EMPTY_BOARD;
     }
 }

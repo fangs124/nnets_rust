@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(clippy::needless_return)]
 mod gameboards;
 mod nnets;
 mod train_nnets;
@@ -11,7 +12,6 @@ use crossterm::terminal::{Clear, ClearType};
 use crossterm::{cursor, ExecutableCommand};
 use inquire::Select;
 use rand::Rng;
-use serde_json;
 use std::env;
 use std::fmt;
 use std::fmt::Display;
@@ -75,7 +75,7 @@ fn main() -> std::io::Result<()> {
     /* network loading/generating */
     let network_q = String::from("New Network?");
     let network_opt = vec!["New Network", "Load Network"];
-    let node_count: Vec<usize> = vec![18, 18, 9]; //param_here
+    let node_count: Vec<usize> = vec![18, 9]; //param_here
     let mut gb = GameBoard::NEW_GAMEBOARD;
     let mut network: Network<bool>;
 
@@ -109,7 +109,7 @@ fn main() -> std::io::Result<()> {
             CS::Quit => {
                 let quit_q = "Save Network?";
                 let quit_opt = vec!["Yes", "No"];
-                match Select::new(&quit_q, quit_opt).prompt().unwrap() {
+                match Select::new(quit_q, quit_opt).prompt().unwrap() {
                     "Yes" => {
                         // save network
                         let file: File =
@@ -125,7 +125,7 @@ fn main() -> std::io::Result<()> {
 
             CS::Train => {
                 let mut sb = SB::new();
-
+                let mut is_on_policy: bool = rng.gen();
                 /* training flow controls */
                 let mut is_training = true;
                 let mut is_playing_self = false;
@@ -136,7 +136,7 @@ fn main() -> std::io::Result<()> {
                 sb.write_to_buf(&mut stream_out)?;
                 while is_training {
                     // listen to 'q' for interupt
-                    let return_val = unsafe { GetAsyncKeyState(0x51 as i32) };
+                    let return_val = unsafe { GetAsyncKeyState(0x51_i32) };
                     if return_val & 0x01 != 0 {
                         //stop training
                         //choice = CS::NoChoice; //
@@ -144,10 +144,14 @@ fn main() -> std::io::Result<()> {
                     };
 
                     match is_playing_self {
-                        true => net_vs_self(&mut network, &mut gb, &mut sb, true, false),
-                        false => net_vs_random(&mut network, &mut gb, &mut sb, true, false),
+                        true => {
+                            net_vs_self(&mut network, &mut gb, &mut sb, true, false, is_on_policy)
+                        }
+                        false => {
+                            net_vs_random(&mut network, &mut gb, &mut sb, true, false, is_on_policy)
+                        }
                     }
-
+                    is_on_policy = rng.gen();
                     is_playing_self = rng.gen();
                     loop_counter += 1;
 
@@ -176,8 +180,12 @@ fn main() -> std::io::Result<()> {
                     Select::new("random or self play?", vec!["random", "self play"]).prompt()
                 {
                     match ans {
-                        "random" => net_vs_random(&mut network, &mut gb, &mut sb, false, true),
-                        "self play" => net_vs_self(&mut network, &mut gb, &mut sb, false, true),
+                        "random" => {
+                            net_vs_random(&mut network, &mut gb, &mut sb, false, true, false)
+                        }
+                        "self play" => {
+                            net_vs_self(&mut network, &mut gb, &mut sb, false, true, false)
+                        }
                         _ => panic!("prompt error!"),
                     }
                 } else {
@@ -227,8 +235,9 @@ fn net_vs_player(
 
         // net's turn
         if x_turn == net_is_x {
-            let output: Vec<f64> = net.get_pi_output(&mut vec_bool);
-            let index = get_random_index(&output, gb);
+            net.forward_prop(&vec_bool);
+            let output: Vec<f64> = net.get_pi_output();
+            let index: usize = get_random_index(&output, gb);
             gb.make_move(BB::MOVES[index])
                 .expect("net_vs_player: invalid move");
             writeln!(stream, "net's turn: ")?;
@@ -236,14 +245,13 @@ fn net_vs_player(
         }
         // player's turn
         else {
-            writeln!(stream, "player's turn:")?;
             // make a random valid move
             let indices: Vec<usize> = (0..9)
                 .filter(|&i| gb.is_valid_move(&BB::MOVES[i]))
                 .collect();
             let choice = Select::new(&move_q, indices).prompt().unwrap();
+            writeln!(stream, "player's turn:")?;
             gb.make_move(BB::MOVES[choice]).unwrap();
-
             gb.print_gameboard();
         }
         // pass turn to next player
