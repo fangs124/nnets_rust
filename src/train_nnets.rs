@@ -210,14 +210,14 @@ pub fn net_vs_self(
         let mut mse: f64 = 0.0;
         for (i, x) in output.iter().enumerate() {
             if i == index {
-                mse += (output[i] - 1.0).powi(2_i32)
+                mse += (x - 1.0).powi(2_i32);
             } else {
-                mse += (output[i]).powi(2_i32)
+                mse += x.powi(2_i32);
             }
         }
         mse = mse / (output.len() as f64);
-        sb.mse_average = sb.mse_average + (mse - sb.mse_average) / (sb.mse_counter as f64);
         sb.mse_counter += 1;
+        sb.mse_average = sb.mse_average + (mse - sb.mse_average) / (sb.mse_counter as f64);
         gb.make_move(BB::MOVES[index]).unwrap();
         grad_vec.push(net.back_prop(&vec_bool, &index));
         if sample {
@@ -318,14 +318,14 @@ pub fn net_vs_random(
             let mut mse: f64 = 0.0;
             for (i, x) in output.iter().enumerate() {
                 if i == index {
-                    mse += (output[i] - 1.0).powi(2_i32)
+                    mse += (x - 1.0).powi(2_i32);
                 } else {
-                    mse += (output[i]).powi(2_i32)
+                    mse += x.powi(2_i32);
                 }
             }
             mse = mse / (output.len() as f64);
-            sb.mse_average = sb.mse_average + (mse - sb.mse_average) / (sb.mse_counter as f64);
             sb.mse_counter += 1;
+            sb.mse_average = sb.mse_average + (mse - sb.mse_average) / (sb.mse_counter as f64);
             gb.make_move(BB::MOVES[index]).unwrap();
             grad_vec.push(net.back_prop(&vec_bool, &index));
             if sample {
