@@ -133,7 +133,7 @@ pub fn dtanh(x: f64) -> f64 {
     x.tanh().mul_add(-x.tanh(), 1.0)
 }
 
-const DEFAULT_ALPHA: f64 = 0.000001;
+const DEFAULT_ALPHA: f64 = 0.10;
 const DEFAULT_GAMMA: f64 = 0.95;
 const DEFAULT_PHI: PhiT = PhiT::Sigmoid;
 // idk how to implement partial defaults, so document here
