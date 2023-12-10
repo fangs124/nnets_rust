@@ -282,7 +282,7 @@ pub fn net_vs_random(
             let output: Vec<f64> = net.get_pi_output();
 
             // teach Net not to make invalid moves
-            let inv_indices = get_invalid_indices(&output, TRESHOLD, gb);
+            let inv_indices = get_invalid_indices(&output.clone(), TRESHOLD, gb);
 
             for &i in &inv_indices {
                 inv_grad_vec.push(net.back_prop(&vec_bool, &i));

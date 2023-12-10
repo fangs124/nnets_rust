@@ -222,6 +222,6 @@ impl GameBoard {
     }
 
     pub fn is_valid_move<T: GameBoardMove>(&self, m: &T) -> bool {
-        return m.to_bitboard() & (self.x_b | self.o_b) != BB::EMPTY_BOARD;
+        return m.to_bitboard() & (self.x_b | self.o_b) == BB::EMPTY_BOARD;
     }
 }
