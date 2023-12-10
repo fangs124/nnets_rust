@@ -89,7 +89,7 @@ fn main() -> std::io::Result<()> {
         "Load Network" => {
             let now = Instant::now();
             writeln!(stream_out, "Loading...\n")?;
-            let file = File::open(format!("{:?}network.json", node_count.clone()))?;
+            let file = File::open(format!("{:?}network.json", node_count))?;
             let mut buf_reader = BufReader::new(file);
             let mut contents = String::new();
             buf_reader.read_to_string(&mut contents)?;
@@ -241,7 +241,6 @@ fn net_vs_player(
             gb.make_move(BB::MOVES[index])
                 .expect("net_vs_player: invalid move");
             writeln!(stream, "net's turn: ")?;
-            gb.print_gameboard();
         }
         // player's turn
         else {
@@ -252,8 +251,8 @@ fn net_vs_player(
             let choice = Select::new(&move_q, indices).prompt().unwrap();
             writeln!(stream, "player's turn:")?;
             gb.make_move(BB::MOVES[choice]).unwrap();
-            gb.print_gameboard();
         }
+        gb.print_gameboard();
         // pass turn to next player
         x_turn = !x_turn;
     }

@@ -130,10 +130,10 @@ pub fn tanh(x: f64) -> f64 {
 }
 
 pub fn dtanh(x: f64) -> f64 {
-    1.0 - (x.tanh() * x.tanh())
+    x.tanh().mul_add(-x.tanh(), 1.0)
 }
 
-const DEFAULT_ALPHA: f64 = 0.10;
+const DEFAULT_ALPHA: f64 = 0.000001;
 const DEFAULT_GAMMA: f64 = 0.95;
 const DEFAULT_PHI: PhiT = PhiT::Sigmoid;
 // idk how to implement partial defaults, so document here
@@ -245,7 +245,7 @@ impl<T: InputType> Network<T> {
             let dpidz = dpida.component_mul(&z.map(dphi(&self.ty)));
 
             // dpi/db = dpi/da * da/dz * dz/db
-            //        =(dpi/dc)        * 1
+            //        =(dpi/dz)        * 1
             grad.db.push((1.0 / pi_index) * &dpidz);
 
             if l != layer_count {
@@ -299,7 +299,7 @@ pub fn softmax(xs: &Vec<f64>) -> Vec<f64> {
     let mut vec: Vec<f64> = Vec::new();
     let mut total: f64 = 0.0;
     for &x in xs {
-        let val = std::f64::consts::E.powf(x);
+        let val = x.exp();
         total += val;
         vec.push(val);
     }

@@ -25,6 +25,8 @@ pub struct ScoreBoard {
     pub epoch: u32,
     pub start_time: Instant,
     pub now: Instant,
+    pub mse_average: f64,
+    pub mse_counter: u64,
 }
 
 pub type SB = ScoreBoard;
@@ -47,6 +49,8 @@ impl ScoreBoard {
             epoch: 0,
             start_time: Instant::now(),
             now: Instant::now(),
+            mse_average: 0.0,
+            mse_counter: 0,
         }
     }
     pub fn update(&mut self) {
@@ -61,6 +65,8 @@ impl ScoreBoard {
         self.vs_random = 0;
         self.self_draws = 0;
         self.invalid_count = 0;
+        self.mse_average = 0.0;
+        self.mse_counter = 0;
         self.now = Instant::now();
     }
 
@@ -85,10 +91,11 @@ impl ScoreBoard {
 
         writeln!(
             stream,
-            "Time Training: {:.2?}, Self Play: {} (Draws: {:.2}%)",
+            "Time Training: {:.2?}, Self Play: {} (Draws: {:.2}%) -- MSE average: {:.2}",
             self.start_time.elapsed(),
             self.self_plays,
             (self.self_draws as f64 / self.self_plays as f64) * 100.0,
+            self.mse_average,
         )?;
         stream.flush()?;
         Ok(())
@@ -199,6 +206,18 @@ pub fn net_vs_self(
             true => get_random_index(&output, gb),
             false => get_index(&output, gb),
         };
+        // HERE
+        let mut mse: f64 = 0.0;
+        for (i, x) in output.iter().enumerate() {
+            if i == index {
+                mse += (output[i] - 1.0).powi(2_i32)
+            } else {
+                mse += (output[i]).powi(2_i32)
+            }
+        }
+        mse = mse / (output.len() as f64);
+        sb.mse_average = sb.mse_average + (mse - sb.mse_average) / (sb.mse_counter as f64);
+        sb.mse_counter += 1;
         gb.make_move(BB::MOVES[index]).unwrap();
         grad_vec.push(net.back_prop(&vec_bool, &index));
         if sample {
@@ -295,6 +314,18 @@ pub fn net_vs_random(
                 true => get_random_index(&output, gb),
                 false => get_index(&output, gb),
             };
+            // HERE
+            let mut mse: f64 = 0.0;
+            for (i, x) in output.iter().enumerate() {
+                if i == index {
+                    mse += (output[i] - 1.0).powi(2_i32)
+                } else {
+                    mse += (output[i]).powi(2_i32)
+                }
+            }
+            mse = mse / (output.len() as f64);
+            sb.mse_average = sb.mse_average + (mse - sb.mse_average) / (sb.mse_counter as f64);
+            sb.mse_counter += 1;
             gb.make_move(BB::MOVES[index]).unwrap();
             grad_vec.push(net.back_prop(&vec_bool, &index));
             if sample {
