@@ -167,8 +167,7 @@ impl<T> Episode<T> {
 const BATCH_SIZE: usize = 100;
 const TRESHOLD: f64 = 0.001;
 pub fn net_vs_self(
-    net: &mut Net<bool>,
-    gb: &mut GB,
+    net: Net<bool>,
     sb: &mut SB,
     is_train: bool,
     sample: bool,
@@ -178,7 +177,7 @@ pub fn net_vs_self(
         println!("net_vs_self");
     }
 
-    gb.new_game();
+    let mut gb: GameBoard = GameBoard::NEW_GAMEBOARD;
 
     let mut x_turn: bool = true; // x goes first
 
@@ -199,7 +198,7 @@ pub fn net_vs_self(
         let output: Vec<f64> = net.get_pi_output();
 
         // teach Net not to make invalid moves
-        let inv_indices = get_invalid_indices(&output, TRESHOLD, gb);
+        let inv_indices = get_invalid_indices(&output, TRESHOLD, &gb);
 
         for &i in &inv_indices {
             inv_grad_vec.push(net.back_prop(&vec_bool, &i));
@@ -209,8 +208,8 @@ pub fn net_vs_self(
         sb.invalid_count += inv_indices.len() as u64;
 
         let index: usize = match is_on_policy {
-            true => get_random_index(&output, gb),
-            false => get_index(&output, gb),
+            true => get_random_index(&output, &gb),
+            false => get_index(&output, &gb),
         };
 
         // HERE
@@ -269,8 +268,8 @@ pub fn net_vs_self(
 }
 
 pub fn net_vs_random(
-    net: &mut Net<bool>,
-    gb: &mut GB,
+    net: Net<bool>,
+
     sb: &mut SB,
     is_train: bool,
     sample: bool,
@@ -283,8 +282,7 @@ pub fn net_vs_random(
         println!("net_vs_random");
         println!("net is x: {}", net_is_x);
     }
-
-    gb.new_game();
+    let mut gb: GameBoard = GameBoard::NEW_GAMEBOARD;
 
     let mut x_turn: bool = true; // x goes first
 
@@ -308,7 +306,7 @@ pub fn net_vs_random(
             let output: Vec<f64> = net.get_pi_output();
 
             // teach Net not to make invalid moves
-            let inv_indices = get_invalid_indices(&output.clone(), TRESHOLD, gb);
+            let inv_indices = get_invalid_indices(&output.clone(), TRESHOLD, &gb);
 
             for &i in &inv_indices {
                 inv_grad_vec.push(net.back_prop(&vec_bool, &i));
@@ -318,8 +316,8 @@ pub fn net_vs_random(
             sb.invalid_count += inv_indices.len() as u64;
 
             let index: usize = match is_on_policy {
-                true => get_random_index(&output, gb),
-                false => get_index(&output, gb),
+                true => get_random_index(&output, &gb),
+                false => get_index(&output, &gb),
             };
             // HERE
             for (i, x) in output.iter().enumerate() {

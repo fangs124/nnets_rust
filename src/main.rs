@@ -3,21 +3,23 @@
 mod gameboards;
 mod nnets;
 mod train_nnets;
-
 use crate::gameboards::*;
 use crate::nnets::*;
 use crate::train_nnets::*;
-
 use crossterm::terminal::{Clear, ClearType};
 use crossterm::{cursor, ExecutableCommand};
 use inquire::Select;
 use rand::Rng;
+//use rayon::prelude::*;
 use std::env;
 use std::fmt;
 use std::fmt::Display;
 use std::fs::File;
 #[allow(unused_imports)]
 use std::io::{stderr, stdout, BufReader, BufWriter, Read, Write};
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::thread;
 use std::time::Instant;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 
@@ -124,6 +126,8 @@ fn main() -> std::io::Result<()> {
             }
 
             CS::Train => {
+                let mut thread_spawned: usize = 0;
+                let mut thread_handles = Vec::new();
                 let mut sb = SB::new();
                 let mut is_on_policy: bool = rng.gen();
                 /* training flow controls */
@@ -134,7 +138,7 @@ fn main() -> std::io::Result<()> {
                 let mut f_buff: BufWriter<&File> = BufWriter::new(&f);
                 writeln!(stream_out, "Press q to stop.\n")?;
                 sb.write_to_buf(&mut stream_out)?;
-                let mut grad_vec: Vec<Grad> = Vec::new();
+                let mut grad_vec: Arc<Mutex<Vec<Grad>>> = Arc::new(Mutex::new(Vec::new()));
                 while is_training {
                     // listen to 'q' for interupt
                     let return_val = unsafe { GetAsyncKeyState(0x51_i32) };
@@ -143,24 +147,29 @@ fn main() -> std::io::Result<()> {
                         //choice = CS::NoChoice; //
                         is_training = false;
                     };
-                    if is_playing_self {
-                        grad_vec.append(&mut net_vs_self(
-                            &mut network,
-                            &mut gb,
-                            &mut sb,
-                            true,
-                            false,
-                            is_on_policy,
-                        ));
-                    } else {
-                        grad_vec.append(&mut net_vs_random(
-                            &mut network,
-                            &mut gb,
-                            &mut sb,
-                            true,
-                            false,
-                            is_on_policy,
-                        ));
+                    if thread_spawned <= 4 {
+                        thread_spawned += 1;
+                        if is_playing_self {
+                            thread_handles.push(thread::spawn(move || {
+                                grad_vec.lock().unwrap().append(&mut net_vs_self(
+                                    network.clone(),
+                                    &mut sb,
+                                    true,
+                                    false,
+                                    is_on_policy,
+                                ))
+                            }));
+                        } else {
+                            thread_handles.push(thread::spawn(move || {
+                                grad_vec.lock().unwrap().append(&mut net_vs_random(
+                                    network.clone(),
+                                    &mut sb,
+                                    true,
+                                    false,
+                                    is_on_policy,
+                                ))
+                            }));
+                        }
                     }
 
                     is_on_policy = rng.gen();
@@ -197,10 +206,10 @@ fn main() -> std::io::Result<()> {
                 {
                     match ans {
                         "random" => {
-                            net_vs_random(&mut network, &mut gb, &mut sb, false, true, false);
+                            net_vs_random(network.clone(), &mut sb, false, true, false);
                         }
                         "self play" => {
-                            net_vs_self(&mut network, &mut gb, &mut sb, false, true, false);
+                            net_vs_self(network.clone(), &mut sb, false, true, false);
                         }
                         _ => panic!("prompt error!"),
                     }

@@ -19,7 +19,7 @@ nalgebra = { version = "0.32.3", features = ["rand", "serde-serialize"] }
 inquire = "0.6.2"
 crossterm = "0.26"
 itertools = "0.12.0"
-maze_generator = "2.0.0"
+# rayon = "1.8.0"
 
 [dependencies.windows]
 version = "0.52"

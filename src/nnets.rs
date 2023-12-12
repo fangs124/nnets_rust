@@ -4,7 +4,7 @@ extern crate nalgebra as na;
 use na::base::{DMatrix, DVector};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Network<T> {
     pub node_count: Vec<usize>,
     pub input_data: Vec<T>,
@@ -61,7 +61,7 @@ fn dphi(ty: &PhiT) -> fn(f64) -> f64 {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 enum PhiT {
     Sigmoid,
     ReLU,
