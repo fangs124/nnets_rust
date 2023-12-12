@@ -13,9 +13,10 @@ pub struct Network<T> {
     weights: Vec<DMatrix<f64>>, // row only (col vector)
     biases: Vec<DVector<f64>>,  // row,col
     layers: Vec<DVector<f64>>,  // row,col //stores z_j as in a_j = phi(z_j)
-    ty: PhiT,                   // to select internal activation function used
+    in_ty: PhiT,
+    out_ty: PhiT, // to select internal activation function used
 }
-
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Gradient {
     db: Vec<DVector<f64>>,
     dw: Vec<DMatrix<f64>>,
@@ -36,10 +37,13 @@ fn phi(ty: &PhiT) -> fn(f64) -> f64 {
     match ty {
         PhiT::Sigmoid => sigmoid,
         PhiT::ReLU => relu,
+        PhiT::ReLU6 => relu6,
         PhiT::LReLU => lrelu,
         PhiT::Tanh => tanh,
         PhiT::SoftPlus => softplus,
         PhiT::FSigmoid => fsigmoid,
+        PhiT::Linear => linear,
+        //PhiT::SPReLU => sprelu,
     }
 }
 
@@ -47,10 +51,13 @@ fn dphi(ty: &PhiT) -> fn(f64) -> f64 {
     match ty {
         PhiT::Sigmoid => dsigmoid,
         PhiT::ReLU => drelu,
+        PhiT::ReLU6 => drelu6,
         PhiT::LReLU => dlrelu,
         PhiT::Tanh => dtanh,
         PhiT::SoftPlus => dsoftplus,
         PhiT::FSigmoid => dfsigmoid,
+        PhiT::Linear => dlinear,
+        //PhiT::SPReLU => dsprelu,
     }
 }
 
@@ -58,10 +65,61 @@ fn dphi(ty: &PhiT) -> fn(f64) -> f64 {
 enum PhiT {
     Sigmoid,
     ReLU,
+    ReLU6,
     LReLU,
     Tanh,
     SoftPlus,
     FSigmoid,
+    Linear,
+    //PReLU,
+    //SPReLU,
+}
+
+/*
+pub fn sprelu(x: f64) -> f64 {
+    x / (1.0 + x.abs())
+}
+
+pub fn dsprelu(a: f64, x: f64) -> f64 {
+    //not actually its derivative
+    fsigmoid(x) * (1.0 - fsigmoid(x))
+}
+pub fn prelu(a: f64, x: f64) -> f64 {
+    x / (1.0 + x.abs())
+}
+
+pub fn dprelu(a: f64, x: f64) -> f64 {
+    //not actually its derivative
+    fsigmoid(x) * (1.0 - fsigmoid(x))
+}
+*/
+
+pub fn linear(x: f64) -> f64 {
+    x
+}
+
+pub fn dlinear(_x: f64) -> f64 {
+    1.0
+}
+
+pub fn relu6(x: f64) -> f64 {
+    if x < 0.0 {
+        0.000000001 * x
+    } else if x < 6.0 {
+        x
+    } else {
+        6.0
+    }
+}
+
+pub fn drelu6(x: f64) -> f64 {
+    if x < 0.0 {
+        0.000000001
+    } else if x < 6.0 {
+        1.0
+    } else {
+        0.000000001
+    }
 }
 
 pub fn fsigmoid(x: f64) -> f64 {
@@ -78,11 +136,7 @@ pub fn softplus(x: f64) -> f64 {
 }
 
 pub fn dsoftplus(x: f64) -> f64 {
-    if x < -7.0 {
-        1.0 / (1.0 + f64::exp(-7.0))
-    } else {
-        1.0 / (1.0 + f64::exp(-x))
-    }
+    1.0 / (1.0 + f64::exp(-x))
 }
 
 pub fn relu(x: f64) -> f64 {
@@ -102,7 +156,7 @@ pub fn drelu(x: f64) -> f64 {
 }
 
 pub fn sigmoid(x: f64) -> f64 {
-    1.0 / (1.0 + f64::exp(-1.0 * x))
+    1.0 / (1.0 + f64::exp(-x))
 }
 
 pub fn dsigmoid(x: f64) -> f64 {
@@ -133,9 +187,10 @@ pub fn dtanh(x: f64) -> f64 {
     x.tanh().mul_add(-x.tanh(), 1.0)
 }
 
-const DEFAULT_ALPHA: f64 = 0.10;
+const DEFAULT_ALPHA: f64 = 0.01;
 const DEFAULT_GAMMA: f64 = 0.95;
-const DEFAULT_PHI: PhiT = PhiT::Sigmoid;
+const DEFAULT_IN_PHI: PhiT = PhiT::ReLU6;
+const DEFAULT_OUT_PHI: PhiT = PhiT::Linear;
 // idk how to implement partial defaults, so document here
 // alpha = 0.05, gamma = 0.95
 
@@ -166,7 +221,8 @@ impl<T: InputType> Network<T> {
             weights,
             biases,
             layers,
-            ty: DEFAULT_PHI,
+            in_ty: DEFAULT_IN_PHI,
+            out_ty: DEFAULT_OUT_PHI,
         };
     }
 
@@ -183,7 +239,7 @@ impl<T: InputType> Network<T> {
 
     pub fn get_phiz_output(&mut self) -> Vec<f64> {
         self.layers[self.node_count.len() - 1]
-            .map(phi(&self.ty))
+            .map(phi(&self.out_ty))
             .data
             .as_vec()
             .to_vec()
@@ -192,7 +248,7 @@ impl<T: InputType> Network<T> {
     pub fn get_pi_output(&mut self) -> Vec<f64> {
         softmax(
             self.layers[self.node_count.len() - 1]
-                .map(phi(&self.ty))
+                .map(phi(&self.out_ty))
                 .data
                 .as_vec(),
         )
@@ -205,13 +261,13 @@ impl<T: InputType> Network<T> {
 
         // layer l = 0
         // z_l = W_l * phi(z_{l-1}) + b_l
-        self.layers[0] = &self.weights[0] * input_vector.map(phi(&self.ty)) + &self.biases[0];
+        self.layers[0] = &self.weights[0] * input_vector + &self.biases[0];
 
         // layer l = 1..L-1
         for l in 1..self.node_count.len() {
             // z_l = W_l * phi(z_{l-1}) + b_l
             self.layers[l] =
-                &self.weights[l] * (self.layers[l - 1]).map(phi(&self.ty)) + &self.biases[l];
+                &self.weights[l] * (self.layers[l - 1]).map(phi(&self.in_ty)) + &self.biases[l];
         }
     }
 
@@ -242,7 +298,10 @@ impl<T: InputType> Network<T> {
             // dpi/dz = dpi/da * da/dz
             //        = dpi/da * dphi(z)
             let z = &self.layers[layer_count - l];
-            let dpidz = dpida.component_mul(&z.map(dphi(&self.ty)));
+            let dpidz = match l {
+                1 => dpida.component_mul(&z.map(dphi(&self.out_ty))),
+                _ => dpida.component_mul(&z.map(dphi(&self.in_ty))),
+            };
 
             // dpi/db = dpi/da * da/dz * dz/db
             //        =(dpi/dz)        * 1
@@ -256,13 +315,12 @@ impl<T: InputType> Network<T> {
                 grad.dw.push(
                     (1.0 / pi_index)
                         * &dpidz
-                        * (self.layers[layer_count - (l + 1)].map(phi(&self.ty))).transpose(),
+                        * (self.layers[layer_count - (l + 1)].map(phi(&self.in_ty))).transpose(),
                 );
             } else {
                 // same as above, except we use input vector
-                grad.dw.push(
-                    (1.0 / pi_index) * &dpidz * (input_vector.map(phi(&self.ty))).transpose(),
-                );
+                grad.dw
+                    .push((1.0 / pi_index) * &dpidz * input_vector.transpose());
             }
 
             // dpi/da for the next layer:
@@ -288,6 +346,28 @@ impl<T: InputType> Network<T> {
                     + self.alpha * f64::powi(self.gamma, strides[i]) * rewards[i] * &grads[i].dw[l];
             }
         }
+    }
+    pub fn update_sum(&mut self, grads: &Vec<Grad>) {
+        let layer_count = self.layers.len();
+        for i in 0..grads.len() {
+            for l in 0..layer_count {
+                self.biases[l] = &self.biases[l] + &grads[i].db[l];
+                self.weights[l] = &self.weights[l] + &grads[i].dw[l];
+            }
+        }
+    }
+    pub fn sum(&mut self, grads: &Vec<Grad>, strides: &[i32], rewards: &[f64]) -> Grad {
+        let mut total: Grad = grads[0].clone();
+        let layer_count = self.layers.len();
+        for i in 1..grads.len() {
+            for l in 0..layer_count {
+                total.db[l] = &total.db[l]
+                    + self.alpha * f64::powi(self.gamma, strides[i]) * rewards[i] * &grads[i].db[l];
+                total.dw[l] = &total.dw[l]
+                    + self.alpha * f64::powi(self.gamma, strides[i]) * rewards[i] * &grads[i].dw[l];
+            }
+        }
+        return total;
     }
 }
 

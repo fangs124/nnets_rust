@@ -75,7 +75,7 @@ fn main() -> std::io::Result<()> {
     /* network loading/generating */
     let network_q = String::from("New Network?");
     let network_opt = vec!["New Network", "Load Network"];
-    let node_count: Vec<usize> = vec![18, 9]; //param_here
+    let node_count: Vec<usize> = vec![128, 128, 128, 128, 9]; //param_here
     let mut gb = GameBoard::NEW_GAMEBOARD;
     let mut network: Network<bool>;
 
@@ -134,6 +134,7 @@ fn main() -> std::io::Result<()> {
                 let mut f_buff: BufWriter<&File> = BufWriter::new(&f);
                 writeln!(stream_out, "Press q to stop.\n")?;
                 sb.write_to_buf(&mut stream_out)?;
+                let mut grad_vec: Vec<Grad> = Vec::new();
                 while is_training {
                     // listen to 'q' for interupt
                     let return_val = unsafe { GetAsyncKeyState(0x51_i32) };
@@ -142,20 +143,35 @@ fn main() -> std::io::Result<()> {
                         //choice = CS::NoChoice; //
                         is_training = false;
                     };
-
-                    match is_playing_self {
-                        true => {
-                            net_vs_self(&mut network, &mut gb, &mut sb, true, false, is_on_policy)
-                        }
-                        false => {
-                            net_vs_random(&mut network, &mut gb, &mut sb, true, false, is_on_policy)
-                        }
+                    if is_playing_self {
+                        grad_vec.append(&mut net_vs_self(
+                            &mut network,
+                            &mut gb,
+                            &mut sb,
+                            true,
+                            false,
+                            is_on_policy,
+                        ));
+                    } else {
+                        grad_vec.append(&mut net_vs_random(
+                            &mut network,
+                            &mut gb,
+                            &mut sb,
+                            true,
+                            false,
+                            is_on_policy,
+                        ));
                     }
+
                     is_on_policy = rng.gen();
                     is_playing_self = rng.gen();
                     loop_counter += 1;
-
-                    if (loop_counter % (BATCH_SIZE * 1000)) == 0 {
+                    if loop_counter >= BATCH_SIZE {
+                        network.update_sum(&grad_vec);
+                        grad_vec = Vec::new();
+                    }
+                    if loop_counter >= BATCH_SIZE * 1000 {
+                        sb.sample_output = network.get_pi_output();
                         //100K
                         sb.epoch += 1;
                         stream_out.execute(cursor::MoveUp(2)).unwrap();
@@ -181,10 +197,10 @@ fn main() -> std::io::Result<()> {
                 {
                     match ans {
                         "random" => {
-                            net_vs_random(&mut network, &mut gb, &mut sb, false, true, false)
+                            net_vs_random(&mut network, &mut gb, &mut sb, false, true, false);
                         }
                         "self play" => {
-                            net_vs_self(&mut network, &mut gb, &mut sb, false, true, false)
+                            net_vs_self(&mut network, &mut gb, &mut sb, false, true, false);
                         }
                         _ => panic!("prompt error!"),
                     }
