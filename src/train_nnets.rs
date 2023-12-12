@@ -176,7 +176,7 @@ pub fn net_vs_self(
     if sample {
         println!("net_vs_self");
     }
-
+    let mut net = net;
     let mut gb: GameBoard = GameBoard::NEW_GAMEBOARD;
 
     let mut x_turn: bool = true; // x goes first
@@ -278,6 +278,7 @@ pub fn net_vs_random(
     let mut rng = rand::thread_rng();
     let net_is_x: bool = rng.gen();
 
+    let mut net = net;
     if sample {
         println!("net_vs_random");
         println!("net is x: {}", net_is_x);

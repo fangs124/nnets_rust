@@ -10,7 +10,7 @@ use crossterm::terminal::{Clear, ClearType};
 use crossterm::{cursor, ExecutableCommand};
 use inquire::Select;
 use rand::Rng;
-//use rayon::prelude::*;
+use rayon::prelude::*;
 use std::env;
 use std::fmt;
 use std::fmt::Display;
@@ -126,8 +126,6 @@ fn main() -> std::io::Result<()> {
             }
 
             CS::Train => {
-                let mut thread_spawned: usize = 0;
-                let mut thread_handles = Vec::new();
                 let mut sb = SB::new();
                 let mut is_on_policy: bool = rng.gen();
                 /* training flow controls */
@@ -147,38 +145,38 @@ fn main() -> std::io::Result<()> {
                         //choice = CS::NoChoice; //
                         is_training = false;
                     };
-                    if thread_spawned <= 4 {
-                        thread_spawned += 1;
-                        if is_playing_self {
-                            thread_handles.push(thread::spawn(move || {
-                                grad_vec.lock().unwrap().append(&mut net_vs_self(
-                                    network.clone(),
-                                    &mut sb,
-                                    true,
-                                    false,
-                                    is_on_policy,
-                                ))
-                            }));
-                        } else {
-                            thread_handles.push(thread::spawn(move || {
-                                grad_vec.lock().unwrap().append(&mut net_vs_random(
-                                    network.clone(),
-                                    &mut sb,
-                                    true,
-                                    false,
-                                    is_on_policy,
-                                ))
-                            }));
+                    rayon::scope(|s| {
+                        let mut rng_scope = rand::thread_rng();
+                        for _ in 0..BATCH_SIZE {
+                            if is_playing_self {
+                                s.spawn(|_s1| {
+                                    grad_vec.lock().unwrap().append(&mut net_vs_self(
+                                        network.clone(),
+                                        &mut sb,
+                                        true,
+                                        false,
+                                        is_on_policy.clone(),
+                                    ))
+                                });
+                            } else {
+                                s.spawn(|s1| {
+                                    grad_vec.lock().unwrap().append(&mut net_vs_random(
+                                        network.clone(),
+                                        &mut sb,
+                                        true,
+                                        false,
+                                        is_on_policy.clone(),
+                                    ))
+                                });
+                            }
+                            is_on_policy = rng_scope.gen();
+                            is_playing_self = rng_scope.gen();
+                            loop_counter += 1;
                         }
-                    }
+                    });
 
-                    is_on_policy = rng.gen();
-                    is_playing_self = rng.gen();
-                    loop_counter += 1;
-                    if loop_counter >= BATCH_SIZE {
-                        network.update_sum(&grad_vec);
-                        grad_vec = Vec::new();
-                    }
+                    network.update_sum(&grad_vec.lock().unwrap());
+
                     if loop_counter >= BATCH_SIZE * 1000 {
                         sb.sample_output = network.get_pi_output();
                         //100K
